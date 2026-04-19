@@ -250,13 +250,15 @@ class MAT_Tracker {
 			$search_map = $this->search_engine_map();
 			foreach ( $search_map as $domain => $query_key ) {
 				if ( $ref_host && false !== strpos( $ref_host, $domain ) ) {
-					$engine  = $domain;
-					$medium  = $medium ? $medium : 'organic';
+					if ( ! $is_ad_click ) {
+						$engine = $domain;
+						$medium = $medium ? $medium : 'organic';
+					}
 					$referrer_keyword = $this->extract_keyword_from_referrer( $referrer, $query_key );
 					if ( ! $keyword && $referrer_keyword ) {
 						$keyword = $referrer_keyword;
 					}
-					if ( ! $keyword ) {
+					if ( ! $keyword && ! $is_ad_click && ! $note ) {
 						$note = 'Arama motoru bulundu ama kelime gizli olabilir';
 					}
 					break;
