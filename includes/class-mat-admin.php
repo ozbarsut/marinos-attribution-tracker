@@ -152,6 +152,7 @@ class MAT_Admin {
 
 			<form method="post" style="background:#fff; border:1px solid #dcdcde; padding:12px; border-radius:8px; margin-bottom:12px;">
 				<?php wp_nonce_field( 'mat_export_action', 'mat_export_nonce' ); ?>
+				<input type="hidden" name="page" value="mat-tracker">
 				<input type="hidden" name="event_type" value="<?php echo esc_attr( $filters['event_type'] ); ?>">
 				<input type="hidden" name="source" value="<?php echo esc_attr( $filters['source'] ); ?>">
 				<input type="hidden" name="keyword" value="<?php echo esc_attr( $filters['keyword'] ); ?>">
@@ -407,7 +408,7 @@ class MAT_Admin {
 		);
 	}
 
-	private function handle_export_action() {
+	public function handle_export_action() {
 		$page = isset( $_REQUEST['page'] ) ? sanitize_key( wp_unslash( $_REQUEST['page'] ) ) : '';
 		if ( 'mat-tracker' !== $page ) {
 			return;
