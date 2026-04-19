@@ -3,7 +3,7 @@
  * Plugin Name: Marinos Attribution Tracker
  * Plugin URI:  https://marinosajans.com.tr
  * Description: Ziyaretci kaynagi, tiklama hareketleri ve arama kelimesi (mumkun oldugu kadar) takibi yapar.
- * Version:     1.0.0
+ * Version:     1.0.1
  * Author:      Marinos Ajans
  * Author URI:  https://marinosajans.com.tr
  * License:     GPL2
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'MAT_VERSION', '1.0.0' );
+define( 'MAT_VERSION', '1.0.1' );
 define( 'MAT_PLUGIN_FILE', __FILE__ );
 define( 'MAT_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
 define( 'MAT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );

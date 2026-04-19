@@ -469,7 +469,7 @@ class MAT_Admin {
 		global $wpdb;
 
 		list( $where, $args ) = $this->build_where_clause( $filters );
-		$sql = "SELECT created_at, event_type, source, medium, campaign, search_engine, search_keyword, page_url, target_url, referrer_url, visitor_ip, user_agent, metadata
+		$sql = "SELECT created_at, event_type, source, medium, search_keyword, page_url, target_url, referrer_url, visitor_ip, metadata
 			FROM {$this->table_name}
 			WHERE {$where}
 			ORDER BY created_at DESC";
@@ -521,50 +521,56 @@ class MAT_Admin {
 
 	private function write_csv_rows( $handle, $rows ) {
 		$headers = array(
-			'created_at',
-			'event_type',
-			'source',
-			'medium',
-			'campaign',
-			'search_engine',
-			'search_keyword',
-			'page_url',
-			'target_url',
-			'referrer_url',
-			'visitor_ip',
-			'user_agent',
-			'is_bot',
-			'bot_reason',
-			'ad_click',
-			'ad_platform',
-			'note',
+			'Zaman',
+			'Event',
+			'Kaynak / Medium',
+			'Arama Kelimesi',
+			'Sayfa',
+			'Hedef URL',
+			'IP',
+			'Trafik',
 		);
 		fputcsv( $handle, $headers );
 
 		foreach ( $rows as $row ) {
 			$metadata = $this->decode_metadata( isset( $row['metadata'] ) ? $row['metadata'] : '' );
+			$is_bot   = $this->is_bot_event( $metadata );
+			$is_ad    = $this->is_ad_event( (object) $row, $metadata );
 
 			$data = array(
-				isset( $row['created_at'] ) ? $row['created_at'] : '',
-				isset( $row['event_type'] ) ? $row['event_type'] : '',
-				isset( $row['source'] ) ? $row['source'] : '',
-				isset( $row['medium'] ) ? $row['medium'] : '',
-				isset( $row['campaign'] ) ? $row['campaign'] : '',
-				isset( $row['search_engine'] ) ? $row['search_engine'] : '',
-				isset( $row['search_keyword'] ) ? $row['search_keyword'] : '',
-				isset( $row['page_url'] ) ? $row['page_url'] : '',
-				isset( $row['target_url'] ) ? $row['target_url'] : '',
-				isset( $row['referrer_url'] ) ? $row['referrer_url'] : '',
-				isset( $row['visitor_ip'] ) ? $row['visitor_ip'] : '',
-				isset( $row['user_agent'] ) ? $row['user_agent'] : '',
-				! empty( $metadata['is_bot'] ) ? '1' : '0',
-				isset( $metadata['bot_reason'] ) ? (string) $metadata['bot_reason'] : '',
-				! empty( $metadata['ad_click'] ) ? '1' : '0',
-				isset( $metadata['ad_platform'] ) ? (string) $metadata['ad_platform'] : '',
-				isset( $metadata['note'] ) ? (string) $metadata['note'] : '',
+				isset( $row['created_at'] ) ? (string) $row['created_at'] : '',
+				isset( $row['event_type'] ) ? (string) $row['event_type'] : '',
+				$this->format_source_medium( $row ),
+				$this->format_keyword_for_display( $row, $metadata, $is_ad ),
+				isset( $row['page_url'] ) ? (string) $row['page_url'] : '',
+				isset( $row['target_url'] ) ? (string) $row['target_url'] : '',
+				isset( $row['visitor_ip'] ) ? (string) $row['visitor_ip'] : '',
+				$is_bot ? 'Bot' : 'Insan',
 			);
 			fputcsv( $handle, $data );
 		}
+	}
+
+	private function format_source_medium( $row ) {
+		$source = isset( $row['source'] ) && '' !== (string) $row['source'] ? (string) $row['source'] : '-';
+		$medium = isset( $row['medium'] ) && '' !== (string) $row['medium'] ? (string) $row['medium'] : '-';
+
+		return $source . ' / ' . $medium;
+	}
+
+	private function format_keyword_for_display( $row, $metadata, $is_ad_event ) {
+		$keyword = isset( $row['search_keyword'] ) ? (string) $row['search_keyword'] : '';
+		$note    = isset( $metadata['note'] ) ? (string) $metadata['note'] : '';
+
+		if ( '' === $keyword ) {
+			$keyword = $is_ad_event ? 'Gizli / URLde yok' : '-';
+		}
+
+		if ( '' !== $note ) {
+			return $keyword . ' | ' . $note;
+		}
+
+		return $keyword;
 	}
 
 	private function set_notice( $type, $message ) {
