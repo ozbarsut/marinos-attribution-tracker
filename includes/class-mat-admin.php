@@ -10,6 +10,7 @@ class MAT_Admin {
 	public function __construct() {
 		$this->table_name = MAT_Database::table_name();
 		add_action( 'admin_menu', array( $this, 'register_menu' ) );
+		add_action( 'admin_init', array( $this, 'handle_export_action' ) );
 	}
 
 	public function register_menu() {
@@ -28,8 +29,6 @@ class MAT_Admin {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
-
-		$this->handle_export_action();
 
 		global $wpdb;
 
@@ -409,6 +408,11 @@ class MAT_Admin {
 	}
 
 	private function handle_export_action() {
+		$page = isset( $_REQUEST['page'] ) ? sanitize_key( wp_unslash( $_REQUEST['page'] ) ) : '';
+		if ( 'mat-tracker' !== $page ) {
+			return;
+		}
+
 		if ( 'POST' !== $_SERVER['REQUEST_METHOD'] ) {
 			return;
 		}
