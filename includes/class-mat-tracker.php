@@ -76,7 +76,11 @@ class MAT_Tracker {
 			return;
 		}
 
-		$attribution = $this->extract_attribution();
+		$query_params = $this->get_request_query_params();
+		$referrer     = $this->get_referrer();
+		$user_agent   = $this->get_user_agent();
+		$bot_info     = $this->detect_bot( $user_agent );
+		$attribution  = $this->extract_attribution( $query_params, $referrer );
 		$this->insert_event(
 			array(
 				'session_id'    => $session_id,
@@ -84,18 +88,22 @@ class MAT_Tracker {
 				'event_label'   => 'landing_page',
 				'page_url'      => $page_url,
 				'target_url'    => '',
-				'referrer_url'  => $this->get_referrer(),
+				'referrer_url'  => $referrer,
 				'source'        => $attribution['source'],
 				'medium'        => $attribution['medium'],
 				'campaign'      => $attribution['campaign'],
 				'search_engine' => $attribution['search_engine'],
 				'search_keyword'=> $attribution['search_keyword'],
 				'visitor_ip'    => $this->get_ip(),
-				'user_agent'    => $this->get_user_agent(),
+				'user_agent'    => $user_agent,
 				'metadata'      => wp_json_encode(
 					array(
-						'query_params' => $this->get_request_query_params(),
+						'query_params' => $query_params,
 						'note'         => $attribution['note'],
+						'is_bot'       => $bot_info['is_bot'],
+						'bot_reason'   => $bot_info['reason'],
+						'ad_platform'  => $attribution['ad_platform'],
+						'ad_click'     => $attribution['is_ad_click'],
 					)
 				),
 			)
@@ -121,6 +129,10 @@ class MAT_Tracker {
 			wp_send_json_error( array( 'message' => 'Eksik veri' ), 400 );
 		}
 
+		$user_agent = $this->get_user_agent();
+		$bot_info   = $this->detect_bot( $user_agent );
+		$session_context = $this->get_session_context( $session_id );
+
 		$this->insert_event(
 			array(
 				'session_id'    => $session_id,
@@ -129,16 +141,18 @@ class MAT_Tracker {
 				'page_url'      => $page_url,
 				'target_url'    => $target_url,
 				'referrer_url'  => $this->get_referrer(),
-				'source'        => '',
-				'medium'        => '',
-				'campaign'      => '',
-				'search_engine' => '',
-				'search_keyword'=> '',
+				'source'        => $session_context['source'],
+				'medium'        => $session_context['medium'],
+				'campaign'      => $session_context['campaign'],
+				'search_engine' => $session_context['search_engine'],
+				'search_keyword'=> $session_context['search_keyword'],
 				'visitor_ip'    => $this->get_ip(),
-				'user_agent'    => $this->get_user_agent(),
+				'user_agent'    => $user_agent,
 				'metadata'      => wp_json_encode(
 					array(
-						'element' => isset( $_POST['element'] ) ? sanitize_text_field( wp_unslash( $_POST['element'] ) ) : '',
+						'element'    => isset( $_POST['element'] ) ? sanitize_text_field( wp_unslash( $_POST['element'] ) ) : '',
+						'is_bot'     => $bot_info['is_bot'],
+						'bot_reason' => $bot_info['reason'],
 					)
 				),
 			)
@@ -177,16 +191,15 @@ class MAT_Tracker {
 		);
 	}
 
-	private function extract_attribution() {
-		$query_params = $this->get_request_query_params();
-		$referrer     = $this->get_referrer();
-
+	private function extract_attribution( $query_params, $referrer ) {
 		$source   = '';
 		$medium   = '';
 		$campaign = '';
 		$engine   = '';
 		$keyword  = '';
 		$note     = '';
+		$is_ad_click = false;
+		$ad_platform = '';
 
 		if ( ! empty( $query_params['utm_source'] ) ) {
 			$source = $query_params['utm_source'];
@@ -198,11 +211,16 @@ class MAT_Tracker {
 			$note = 'Keyword URL parametresinden alindi';
 		}
 
-		if ( ! empty( $query_params['gclid'] ) || ! empty( $query_params['gbraid'] ) || ! empty( $query_params['wbraid'] ) || ! empty( $query_params['gad_source'] ) ) {
+		if ( $this->is_google_ads_click( $query_params ) ) {
 			$source = $source ? $source : 'google';
 			$medium = $medium ? $medium : 'cpc';
+			$engine = $engine ? $engine : 'google_ads';
+			$is_ad_click = true;
+			$ad_platform = 'google_ads';
 			if ( ! $note ) {
-				$note = 'Google Ads parametresi bulundu';
+				$note = $keyword
+					? 'Google Ads kelimesi URL parametresinden alindi'
+					: 'Google Ads tiki bulundu. Anahtar kelimeyi gormek icin reklam URLsine utm_term={keyword} veya keyword={keyword} ekleyin.';
 			}
 		}
 
@@ -210,11 +228,15 @@ class MAT_Tracker {
 			$source = $source ? $source : 'facebook';
 			$medium = $medium ? $medium : 'paid_social';
 			$note   = 'fbclid bulundu';
+			$is_ad_click = true;
+			$ad_platform = 'facebook_ads';
 		}
 		if ( ! empty( $query_params['msclkid'] ) ) {
 			$source = $source ? $source : 'bing';
 			$medium = $medium ? $medium : 'cpc';
 			$note   = 'msclkid bulundu';
+			$is_ad_click = true;
+			$ad_platform = 'microsoft_ads';
 		}
 
 		if ( $referrer ) {
@@ -228,13 +250,15 @@ class MAT_Tracker {
 			$search_map = $this->search_engine_map();
 			foreach ( $search_map as $domain => $query_key ) {
 				if ( $ref_host && false !== strpos( $ref_host, $domain ) ) {
-					$engine  = $domain;
-					$medium  = $medium ? $medium : 'organic';
+					if ( ! $is_ad_click ) {
+						$engine = $domain;
+						$medium = $medium ? $medium : 'organic';
+					}
 					$referrer_keyword = $this->extract_keyword_from_referrer( $referrer, $query_key );
 					if ( ! $keyword && $referrer_keyword ) {
 						$keyword = $referrer_keyword;
 					}
-					if ( ! $keyword ) {
+					if ( ! $keyword && ! $is_ad_click && ! $note ) {
 						$note = 'Arama motoru bulundu ama kelime gizli olabilir';
 					}
 					break;
@@ -251,6 +275,8 @@ class MAT_Tracker {
 			'search_engine'  => $engine,
 			'search_keyword' => $keyword,
 			'note'           => $note,
+			'is_ad_click'    => $is_ad_click,
+			'ad_platform'    => $ad_platform,
 		);
 	}
 
@@ -265,7 +291,7 @@ class MAT_Tracker {
 			return '';
 		}
 
-		return sanitize_text_field( $params[ $query_key ] );
+		return $this->normalize_keyword_candidate( $params[ $query_key ] );
 	}
 
 	private function search_engine_map() {
@@ -280,14 +306,17 @@ class MAT_Tracker {
 	}
 
 	private function extract_keyword_from_query_params( $query_params ) {
-		$keyword_keys = array( 'utm_term', 'keyword', 'searchterm', 'search_term', 'term', 'query', 'q', 'utm_keyword' );
+		$keyword_keys = array( 'utm_term', 'keyword', 'searchterm', 'search_term', 'term', 'query', 'q', 'utm_keyword', 'ad_keyword', 'kw', 'adquery', '_kwd' );
 
 		foreach ( $keyword_keys as $key ) {
 			if ( empty( $query_params[ $key ] ) ) {
 				continue;
 			}
 
-			return sanitize_text_field( $query_params[ $key ] );
+			$keyword = $this->normalize_keyword_candidate( $query_params[ $key ] );
+			if ( '' !== $keyword ) {
+				return $keyword;
+			}
 		}
 
 		return '';
@@ -312,6 +341,15 @@ class MAT_Tracker {
 			'gad_source',
 			'fbclid',
 			'msclkid',
+			'kw',
+			'ad_keyword',
+			'adquery',
+			'_kwd',
+			'matchtype',
+			'device',
+			'network',
+			'adgroupid',
+			'campaignid',
 		);
 		$data = array();
 
@@ -322,6 +360,97 @@ class MAT_Tracker {
 		}
 
 		return $data;
+	}
+
+	private function is_google_ads_click( $query_params ) {
+		return ! empty( $query_params['gclid'] ) || ! empty( $query_params['gbraid'] ) || ! empty( $query_params['wbraid'] ) || ! empty( $query_params['gad_source'] );
+	}
+
+	private function normalize_keyword_candidate( $value ) {
+		$keyword = sanitize_text_field( $value );
+		if ( '' === $keyword ) {
+			return '';
+		}
+
+		$normalized = strtolower( trim( $keyword ) );
+		$invalid    = array( '{keyword}', '(not set)', '(not provided)', 'not set', 'not provided', 'n/a', 'na' );
+		if ( in_array( $normalized, $invalid, true ) ) {
+			return '';
+		}
+
+		return $keyword;
+	}
+
+	private function detect_bot( $user_agent ) {
+		$user_agent = trim( (string) $user_agent );
+		if ( '' === $user_agent ) {
+			return array(
+				'is_bot' => 1,
+				'reason' => 'empty_user_agent',
+			);
+		}
+
+		$user_agent_lower = strtolower( $user_agent );
+		$bot_patterns     = array(
+			'bot',
+			'crawl',
+			'spider',
+			'slurp',
+			'crawler',
+			'headless',
+			'python-requests',
+			'curl',
+			'wget',
+			'facebookexternalhit',
+			'whatsapp',
+			'telegrambot',
+		);
+
+		foreach ( $bot_patterns as $pattern ) {
+			if ( false !== strpos( $user_agent_lower, $pattern ) ) {
+				return array(
+					'is_bot' => 1,
+					'reason' => 'ua_pattern:' . $pattern,
+				);
+			}
+		}
+
+		return array(
+			'is_bot' => 0,
+			'reason' => '',
+		);
+	}
+
+	private function get_session_context( $session_id ) {
+		global $wpdb;
+
+		$sql = $wpdb->prepare(
+			"SELECT source, medium, campaign, search_engine, search_keyword
+			FROM {$this->table_name}
+			WHERE session_id = %s
+				AND ( source <> '' OR medium <> '' OR campaign <> '' OR search_engine <> '' OR search_keyword <> '' )
+			ORDER BY id DESC
+			LIMIT 1",
+			$session_id
+		);
+		$row = $wpdb->get_row( $sql, ARRAY_A );
+		if ( ! is_array( $row ) ) {
+			return array(
+				'source'         => '',
+				'medium'         => '',
+				'campaign'       => '',
+				'search_engine'  => '',
+				'search_keyword' => '',
+			);
+		}
+
+		return array(
+			'source'         => isset( $row['source'] ) ? (string) $row['source'] : '',
+			'medium'         => isset( $row['medium'] ) ? (string) $row['medium'] : '',
+			'campaign'       => isset( $row['campaign'] ) ? (string) $row['campaign'] : '',
+			'search_engine'  => isset( $row['search_engine'] ) ? (string) $row['search_engine'] : '',
+			'search_keyword' => isset( $row['search_keyword'] ) ? (string) $row['search_keyword'] : '',
+		);
 	}
 
 	private function get_session_id() {
